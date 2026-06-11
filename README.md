@@ -3,6 +3,10 @@
 
 A serverless, voice-activated emergency alert system designed for home care and visiting nurses. This project allows patients or elderly users to call for assistance hands-free via Amazon Echo, triggering an automated phone call to the assigned nurse's smartphone.
 
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/5ea6351d-c63f-4c91-a909-3118ac30cf13" alt="Alexa Nurse Call System Logo" width="300">
+</p>
+
 ## 🚀 Overview
 
 When a user says *"Alexa, call the nurse,"* the system processes the request through the Alexa Skills Kit (ASK) and triggers an AWS Lambda function. The Lambda function interacts with the Twilio Programmable Voice API to initiate a regular PSTN phone call to the nurse, delivering a Text-to-Speech (TTS) emergency notification.
