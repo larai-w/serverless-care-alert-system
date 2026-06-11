@@ -4,7 +4,7 @@
 A serverless, voice-activated emergency alert system designed for home care and visiting nurses. This project allows patients or elderly users to call for assistance hands-free via Amazon Echo, triggering an automated phone call to the assigned nurse's smartphone.
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/5ea6351d-c63f-4c91-a909-3118ac30cf13" alt="Alexa Nurse Call System Logo" width="300">
+  <img src="https://github.com/user-attachments/assets/18aa0317-eede-448b-872c-e7ffa35dbe6d" alt="Alexa Nurse Call System Logo" width="300">
 </p>
 
 ## 🚀 Overview
