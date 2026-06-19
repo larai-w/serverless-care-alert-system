@@ -1,13 +1,10 @@
 import twilio from 'twilio';
-import https from 'https';
 
 const {
   TWILIO_ACCOUNT_SID,
   TWILIO_AUTH_TOKEN,
   TWILIO_FROM_NUMBER,
   NURSE_PHONE_NUMBER,
-  LINE_CHANNEL_ACCESS_TOKEN,
-  LINE_USER_ID,
 } = process.env;
 
 async function callNurse(message) {
@@ -25,46 +22,6 @@ async function callNurse(message) {
 
   console.log(`Call initiated: ${call.sid}`);
   return call.sid;
-}
-
-function sendLineMessage(message) {
-  return new Promise((resolve, reject) => {
-    if (!LINE_CHANNEL_ACCESS_TOKEN || !LINE_USER_ID) {
-      return reject(new Error('Required LINE environment variables are not set.'));
-    }
-
-    const body = JSON.stringify({
-      to: LINE_USER_ID,
-      messages: [{ type: 'text', text: message }],
-    });
-
-    const options = {
-      hostname: 'api.line.me',
-      path: '/v2/bot/message/push',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`,
-        'Content-Length': Buffer.byteLength(body),
-      },
-    };
-
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        if (res.statusCode >= 200 && res.statusCode < 300) {
-          resolve(data);
-        } else {
-          reject(new Error(`LINE API error: ${res.statusCode} ${data}`));
-        }
-      });
-    });
-
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
 }
 
 function buildAlexaResponse(speechText, shouldEndSession = true) {
@@ -110,27 +67,13 @@ export const handler = async (event) => {
       }
     }
 
-    if (intentName === 'LineMessageIntent') {
-      const message = event.request.intent?.slots?.message?.value;
-      if (!message) {
-        return buildAlexaResponse('送信するメッセージが聞き取れませんでした。もう一度お試しください。');
-      }
-      try {
-        await sendLineMessage(message);
-        return buildAlexaResponse('LINEでメッセージを送信しました。');
-      } catch (err) {
-        console.error('Failed to send LINE message:', err);
-        return buildAlexaResponse('申し訳ありません。LINEへの送信に失敗しました。もう一度お試しください。');
-      }
-    }
-
     if (intentName === 'AMAZON.StopIntent' || intentName === 'AMAZON.CancelIntent') {
       return buildAlexaResponse('ナースコールシステムを終了します。');
     }
 
     if (intentName === 'AMAZON.HelpIntent') {
       return buildAlexaResponse(
-        '「看護師を呼んで」と話しかけると、担当の看護師に電話でお知らせします。「LINEで」に続けてメッセージを言うと、LINEでメッセージを送ることもできます。',
+        '「看護師を呼んで」と話しかけると、担当の看護師に電話でお知らせします。',
         false
       );
     }
