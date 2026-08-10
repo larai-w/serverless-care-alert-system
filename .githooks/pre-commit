@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+python3 scripts/check_public_repo.py --staged
+
+# gitleaks secret scan on staged changes (protect staged + worktree)
+if command -v gitleaks >/dev/null 2>&1; then
+  if ! gitleaks protect --staged --redact -v; then
+    echo ""
+    echo "❌ pre-commit blocked: secret detected in staged changes."
+    echo "   Remove the secret, or (if false positive) allowlist it in .gitleaks.toml."
+    echo "   Do NOT bypass with --no-verify."
+    exit 1
+  fi
+else
+  echo "⚠️  gitleaks not installed — secret scan skipped. Install: brew install gitleaks"
+fi

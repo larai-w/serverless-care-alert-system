@@ -1,0 +1,63 @@
+# gitleaks 設定テンプレート（Veaiエコシステム共通）
+# check-public-repo: allow — this reviewed config contains official dummy tokens.
+#
+# 用途: 各リポジトリのルートに `.gitleaks.toml` として配置する。
+#       TASK-01（シークレットのハードコード排除）の検出に使用。
+#
+# 使い方:
+#   brew install gitleaks            # インストール
+#   gitleaks detect --source . -v    # リポジトリ全体をスキャン
+#   gitleaks detect --staged -v      # ステージング済み変更をスキャン（pre-commit用）
+#
+# 関係性:
+#   setup/check_public_repo.py は「公開リポジトリへのprivate素材混入防止」（pre-commit）。
+#   本設定は「シークレット漏洩の網羅検出」（gitleaks、数百パターン）。両者は補完関係。
+#   check_public_repo.py のシークレット検出は3パターンのみ（private key/AWS/GitHub）のため、
+#   gitleaks で Slack/Google/JWT 等を補完する。
+
+title = "Veai Ecosystem gitleaks config"
+
+# --- 全体ルール: gitleaks のデフォルトルールセットを継承 ---
+# gitleaks の組み込みルール（aws-access-token, github-pat, slack-access-token,
+# private-key, jwt, google-api-key 等 数百パターン）をそのまま使う。
+# 個別ルールの上書き・追加が必要な場合のみ以下に記述する。
+
+[extend]
+# useDefault = true で gitleaks 標準ルールセットを継承
+useDefault = true
+
+[allowlist]
+# 誤検出を減らすための除外設定
+description = "Veai global allowlist"
+
+# 除外パス（テスト用ダミー、生成物など）
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)\.git/''',
+  '''(^|/)dist/''',
+  '''(^|/)build/''',
+  '''(^|/)coverage/''',
+  '''\.lock$''',
+  '''package-lock\.json$''',
+  '''yarn\.lock$''',
+  '''pnpm-lock\.yaml$''',
+  # gitleaks設定自身（例示用のダミーを含む可能性があるため）
+  '''(^|/)\.gitleaks\.toml$''',
+  '''gitleaks-template\.toml$''',
+]
+
+# 除外コミット（ローテーション済みの漏洩コミット等、確認後に追加）
+# commits = ["<commit-hash>"]
+
+# 除外文字列（テスト用ダミー値など、確認後に追加）
+regexes = [
+  '''wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY''',  # AWS公式サンプル
+]
+
+# --- 追加ルール（必要に応じて有効化） ---
+# 例: 医療・介護API固有のトークンなど、標準ルールにないものがあれば追加
+# [[rules]]
+# id = "veai-care-api-token"
+# description = "CareQuest/CareReady API token"
+# regex = '''care_(live|test)_[a-zA-Z0-9]{24,}'''
+# keywords = ["care_live", "care_test"]
