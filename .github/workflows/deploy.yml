@@ -12,6 +12,8 @@ on:
   push:
     branches:
       - main
+  # 手動再デプロイ用。障害からの復旧と、認証まわりを変えたときの確認に使う。
+  workflow_dispatch:
 
 jobs:
   deploy:
