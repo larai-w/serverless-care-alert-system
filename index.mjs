@@ -7,6 +7,10 @@ const {
   NURSE_PHONE_NUMBER,
 } = process.env;
 
+/**
+ * Twilio 経由で介護者の電話番号に自動音声通話を発信する。
+ * @param {string} message - 読み上げるメッセージ
+ */
 async function callNurse(message) {
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_FROM_NUMBER || !NURSE_PHONE_NUMBER) {
     throw new Error('Required Twilio environment variables are not set.');
@@ -24,6 +28,9 @@ async function callNurse(message) {
   return call.sid;
 }
 
+/**
+ * Alexa レスポンスオブジェクトを生成するヘルパー。
+ */
 function buildAlexaResponse(speechText, shouldEndSession = true) {
   return {
     version: '1.0',
@@ -37,6 +44,9 @@ function buildAlexaResponse(speechText, shouldEndSession = true) {
   };
 }
 
+/**
+ * AWS Lambda ハンドラー。Alexa からのリクエストを処理する。
+ */
 export const handler = async (event) => {
   console.log('Received event:', JSON.stringify(event, null, 2));
 
