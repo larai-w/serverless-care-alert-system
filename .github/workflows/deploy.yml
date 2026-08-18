@@ -1,3 +1,11 @@
+# main への push で nurse-alert-function のコードを更新する。
+#
+# 認証は OIDC（2026-08-18 移行）。長期アクセスキーは使わない。
+# 権限は lambda:UpdateFunctionCode を nurse-alert-function に限定しているため、
+# このワークフローは環境変数（NURSE_PHONE_NUMBER や Twilio 認証情報）を
+# 変更できない。番号の変更は AWS CLI で別途行う。
+#
+# 必要な Secrets: AWS_DEPLOY_ROLE_ARN
 name: Deploy to AWS Lambda
 
 on:
@@ -8,13 +16,17 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # OIDC でロールを引き受けるために必要
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '20'
 
@@ -25,11 +37,10 @@ jobs:
         run: zip -r function.zip index.mjs node_modules/
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
 
       - name: Deploy to Lambda
         run: |
