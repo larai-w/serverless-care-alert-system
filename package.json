@@ -4,7 +4,7 @@
   "description": "A serverless, voice-activated emergency alert system designed for home care and visiting nurses. This project allows patients or elderly users to call for assistance hands-free via Amazon Echo, triggering an automated phone call to the assigned nurse's smartphone.",
   "main": "index.mjs",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test tests/*.test.mjs"
   },
   "repository": {
     "type": "git",
