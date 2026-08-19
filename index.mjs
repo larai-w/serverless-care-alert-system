@@ -69,8 +69,19 @@ export const handler = async (event) => {
 
     if (intentName === 'CallNurseIntent') {
       try {
-        await callNurse('患者さんからナースコールが届いています。すぐに確認してください。');
-        return buildAlexaResponse('看護師に連絡しました。もうしばらくお待ちください。');
+        // 深夜に確実に起こせるのは携帯への実通話だけ。Alexa アプリの着信は
+        // マナーモードでなくても鳴らず、呼びかけ・アナウンスも Echo で鳴らない。
+        // そのため「電話で起こす → その電話で次の行動を伝える」形にしている。
+        // 看護師は電話を取った時点でスマホを手にしているので、
+        // Alexa アプリからの呼びかけは1操作で済む。
+        // 患者側の Echo は呼びかけを自動で受けるため、手が使えなくても会話できる。
+        await callNurse(
+          'ナースコールです。'
+          + 'アレクサアプリを開いて、呼びかけでお話しください。'
+          + '繰り返します。ナースコールです。'
+          + 'アレクサアプリの呼びかけでお話しください。'
+        );
+        return buildAlexaResponse('看護師さんの電話を鳴らしました。呼びかけがあるまでお待ちください。');
       } catch (err) {
         console.error('Failed to call nurse:', err);
         return buildAlexaResponse('申し訳ありません。看護師への連絡に失敗しました。もう一度お試しください。');
