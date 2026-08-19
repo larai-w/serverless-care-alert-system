@@ -5,6 +5,10 @@ const {
   TWILIO_AUTH_TOKEN,
   TWILIO_FROM_NUMBER,
   NURSE_PHONE_NUMBER,
+  // 誰からのコールかを読み上げに入れる。寝起きでも状況が掴めるようにするため。
+  // このリポジトリは公開なので名前はコードに書かず、Lambda の環境変数で渡す
+  // (AGENTS.md: personal information をコミットしない)。未設定でも動く。
+  PATIENT_NAME,
 } = process.env;
 
 /**
@@ -75,10 +79,13 @@ export const handler = async (event) => {
         // 看護師は電話を取った時点でスマホを手にしているので、
         // Alexa アプリからの呼びかけは1操作で済む。
         // 患者側の Echo は呼びかけを自動で受けるため、手が使えなくても会話できる。
+        // 名前が設定されていれば「◯◯さんからナースコールです」と読む。
+        // 未設定なら従来どおり。名前の有無で動作が変わらないようにする。
+        const caller = PATIENT_NAME ? `${PATIENT_NAME}さんから` : '';
         await callNurse(
-          'ナースコールです。'
+          `${caller}ナースコールです。`
           + 'アレクサアプリを開いて、呼びかけでお話しください。'
-          + '繰り返します。ナースコールです。'
+          + `繰り返します。${caller}ナースコールです。`
           + 'アレクサアプリの呼びかけでお話しください。'
         );
         return buildAlexaResponse('看護師さんの電話を鳴らしました。呼びかけがあるまでお待ちください。');
