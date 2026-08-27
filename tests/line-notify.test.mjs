@@ -17,31 +17,72 @@ const SRC = readFileSync(
 test('LINE は電話のあとに送る（すべての経路で）', () => {
   // **順番が逆だと、通知の分だけ通報が遅れる。**
   //
-  // ⚠️ 最初に書いたテストは `indexOf` で1件だけ見ていたため、
-  // **Alexa 経路の順番を逆にしても通ってしまった**（2026-08-27）。
-  // 呼び出し箇所は2つ（ボタン / Alexa）ある。
-  // **経路の数だけ確かめないと、片方が壊れても気づけない。**
-  const calls = [...SRC.matchAll(/await callNurse\(buildAlertMessage\(\)\);/g)]
-    .map((m) => m.index);
+  // ⚠️ 最初のテストは `indexOf` で1件だけ見ていて、Alexa 経路だけ逆にしても
+  // 通ってしまった（2026-08-27）。次に書いたものは `callNurse(...)` の
+  // 引数が増えたら合わなくなった。**形に依存する書き方は、実装を触るたびに壊れる。**
+  //
+  // ここでは形ではなく**関係**を見る:
+  //   「成功の通知」ひとつひとつについて、**直前に callNurse がある**こと。
+  //   その間に return が挟まっていないこと（早期離脱していない）。
   const notifies = [...SRC.matchAll(/notifyFamilyOnLine\(buildFamilyMessage\('placed'\)\)/g)]
     .map((m) => m.index);
 
-  assert.equal(calls.length, 2, `callNurse の呼び出しが ${calls.length} 箇所。経路は2つのはず`);
-  assert.equal(notifies.length, 2, `成功時の通知が ${notifies.length} 箇所。経路は2つのはず`);
+  assert.ok(notifies.length >= 2,
+    `成功時の通知が ${notifies.length} 箇所。ボタンと Alexa の2経路あるはず`);
 
-  // それぞれの経路で、電話 → 通知 の順になっていること
-  for (let i = 0; i < calls.length; i += 1) {
-    assert.ok(
-      notifies[i] > calls[i],
-      `${i + 1}番目の経路で LINE 通知が電話より先にある。通報が遅れる`
+  for (const at of notifies) {
+    const before = SRC.lastIndexOf('callNurse(', at);
+    assert.ok(before !== -1 && before < at,
+      '成功の通知の前に callNurse が無い。通知が先に走る形になっている');
+    const between = SRC.slice(before, at);
+    assert.ok(!/\breturn\b/.test(between),
+      'callNurse と通知の間に return がある。通知に届かない経路がある');
+  }
+});
+
+test('折り返し先を渡さない発信経路が無い', () => {
+  // **Alexa 経路では host が取れない。** 関数URLではなく Lambda を直接
+  // 呼ぶため。夜間に一番使うのがこの経路なので、ここが抜けると
+  // **肝心のときだけ通話結果が分からない**。
+  const calls = [...SRC.matchAll(/callNurse\(buildAlertMessage\(\)/g)].map((m) => m.index);
+  assert.ok(calls.length >= 2, `callNurse の呼び出しが ${calls.length} 箇所`);
+  for (const at of calls) {
+    const tail = SRC.slice(at, at + 200);
+    assert.match(tail, /callbackBase/,
+      'callbackBase を渡していない発信がある。通話結果を受け取れない');
+  }
+});
+
+test('Alexa 経路（host が無い）でも折り返し先が決まる', async () => {
+  // ⚠️ 最初に書いたテストは `SRC` に PUBLIC_CALLBACK_BASE の**文字が**
+  // あるかだけを見ていた。宣言部とコメントに残るので、
+  // **肝心のフォールバックを消しても通ってしまった**（2026-08-27）。
+  // 文字ではなく**挙動**を見る。
+  const saved = { ...process.env };
+  process.env.PUBLIC_CALLBACK_BASE = 'https://example.on.aws';
+  try {
+    const mod = await import(`../index.mjs?cb=${Date.now()}${Math.random()}`);
+
+    // 関数URL 経由: イベントの host を使う
+    assert.equal(
+      mod.callbackBaseFrom({ headers: { host: 'real.on.aws' } }),
+      'https://real.on.aws'
     );
-    // 別の経路の通知と取り違えていないこと（間に次の callNurse が無い）
-    if (calls[i + 1] !== undefined) {
-      assert.ok(
-        notifies[i] < calls[i + 1],
-        `${i + 1}番目の経路に通知が無く、次の経路の通知を見ている`
-      );
-    }
+
+    // Alexa 経由: host が無い。**環境変数の受け皿が効くこと**
+    assert.equal(
+      mod.callbackBaseFrom({ request: { type: 'IntentRequest' } }),
+      'https://example.on.aws',
+      'host が無いときに折り返し先が決まらない。Alexa 経路で通話結果を受け取れない'
+    );
+
+    // どちらも無ければ null（**落とさない**。通報は成立する）
+    delete process.env.PUBLIC_CALLBACK_BASE;
+    const mod2 = await import(`../index.mjs?cb2=${Date.now()}${Math.random()}`);
+    assert.equal(mod2.callbackBaseFrom({}), null, '取れないときに null を返していない');
+  } finally {
+    for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+    Object.assign(process.env, saved);
   }
 });
 
