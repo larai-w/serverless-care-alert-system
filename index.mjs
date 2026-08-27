@@ -1,3 +1,4 @@
+import https from 'https';
 import twilio from 'twilio';
 
 const {
@@ -12,7 +13,14 @@ const {
   // 物理ボタンからの Webhook を認証する共有シークレット。
   // 未設定なら Webhook 入口は無効(誰でも通報できる状態にしない)。
   BUTTON_SHARED_SECRET,
+  // 家族への LINE 通知。**未設定でも通報は動く**(通知は付加物)。
+  LINE_CHANNEL_ACCESS_TOKEN,
+  LINE_USER_ID,
 } = process.env;
+
+// LINE API を待つ上限。**電話より長く待たない。**
+// 通知のために通報が遅れたら本末転倒(CLAUDE.md §2.6)。
+const LINE_TIMEOUT_MS = 3000;
 
 /**
  * Twilio 経由で介護者の電話番号に自動音声通話を発信する。
@@ -99,11 +107,109 @@ async function handleButtonWebhook(event) {
 
   try {
     const sid = await callNurse(buildAlertMessage());
+    await notifyFamilyOnLine(buildFamilyMessage('placed'));
     return reply(200, { ok: true, callSid: sid });
   } catch (err) {
     console.error('Failed to call nurse from button webhook:', err);
+    await notifyFamilyOnLine(buildFamilyMessage('failed'));
     return reply(502, { error: 'call failed' });
   }
+}
+
+/**
+ * 家族の LINE へ通知する。**通報の付加物であって、通報そのものではない。**
+ *
+ * なぜ要るか(2026-08-27):
+ *   発信に失敗したとき、呼んだ本人には音声で伝わるが、家族には
+ *   **CloudWatch アラーム経由のメールしか届かない**。夜中の3時にメールは
+ *   届いても気づけない。成功したときも、家族は「呼ばれたこと」を知らない。
+ *
+ * 設計の約束:
+ *   1. **電話が先、LINE は後。** 順番を逆にしない
+ *   2. **絶対に throw しない。** LINE の失敗で通報を止めない
+ *   3. **未設定なら黙って何もしない。** 通知は付加物なので、
+ *      無くても通報は成立する
+ *   4. **待ち時間に上限を置く。** 応答しない LINE API に引きずられない
+ *
+ * ⚠️ **LINE は代替手段ではない。** 通信が死んでいれば電話も LINE も鳴らない。
+ * 確実に鳴る物理的な手段の併用が前提であることは変わらない。
+ *
+ * @returns {Promise<{sent: boolean, reason?: string}>} 例外は投げない
+ */
+async function notifyFamilyOnLine(text) {
+  if (!LINE_CHANNEL_ACCESS_TOKEN || !LINE_USER_ID) {
+    // 設定していないだけ。**失敗ではない**ので警告にしない。
+    console.log('LINE notify skipped: not configured');
+    return { sent: false, reason: 'not configured' };
+  }
+
+  const body = JSON.stringify({
+    to: LINE_USER_ID,
+    messages: [{ type: 'text', text }],
+  });
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+
+    const req = https.request(
+      {
+        hostname: 'api.line.me',
+        path: '/v2/bot/message/push',
+        method: 'POST',
+        timeout: LINE_TIMEOUT_MS,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`,
+          'Content-Length': Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            // 成功も残す。失敗しか記録が無いと
+            // 「送ったつもりで届いていない」を切り分けられない。
+            console.log(`LINE notify ok: ${res.statusCode}`);
+            done({ sent: true });
+          } else {
+            console.error(`LINE notify failed: ${res.statusCode} ${data}`);
+            done({ sent: false, reason: `http ${res.statusCode}` });
+          }
+        });
+      }
+    );
+
+    req.on('timeout', () => {
+      console.error(`LINE notify timed out after ${LINE_TIMEOUT_MS}ms`);
+      req.destroy();
+      done({ sent: false, reason: 'timeout' });
+    });
+    req.on('error', (err) => {
+      console.error('LINE notify error:', err.message);
+      done({ sent: false, reason: err.message });
+    });
+
+    req.write(body);
+    req.end();
+  });
+}
+
+/**
+ * 家族へ送る文面。**成功と失敗で、読んだ人がすることが変わる。**
+ */
+function buildFamilyMessage(outcome) {
+  const who = PATIENT_NAME ? `${PATIENT_NAME}さん` : '患者さん';
+  const at = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+  if (outcome === 'placed') {
+    return `【ナースコール】${who}が看護師を呼びました。\n${at}\n看護師の電話を鳴らしています。`;
+  }
+  return `【ナースコール失敗】${who}が看護師を呼びましたが、電話の発信に失敗しました。\n${at}\n**別の手段で確認してください。**`;
 }
 
 /**
@@ -160,9 +266,14 @@ export const handler = async (event) => {
         // Alexa アプリからの呼びかけは1操作で済む。
         // 患者側の Echo は呼びかけを自動で受けるため、手が使えなくても会話できる。
         await callNurse(buildAlertMessage());
+        // **電話のあとに通知する。** 通知が先だと、通報が遅れる。
+        await notifyFamilyOnLine(buildFamilyMessage('placed'));
         return buildAlexaResponse('看護師さんの電話を鳴らしました。呼びかけがあるまでお待ちください。');
       } catch (err) {
         console.error('Failed to call nurse:', err);
+        // **失敗こそ家族に伝える。** 呼んだ本人には音声で伝わるが、
+        // 家族はメールしか受け取れず、夜間は気づけない。
+        await notifyFamilyOnLine(buildFamilyMessage('failed'));
         return buildAlexaResponse('申し訳ありません。看護師への連絡に失敗しました。もう一度お試しください。');
       }
     }
