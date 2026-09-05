@@ -160,10 +160,14 @@ export const handler = async (event) => {
         // Alexa アプリからの呼びかけは1操作で済む。
         // 患者側の Echo は呼びかけを自動で受けるため、手が使えなくても会話できる。
         await callNurse(buildAlertMessage());
-        return buildAlexaResponse('看護師さんの電話を鳴らしました。呼びかけがあるまでお待ちください。');
+        return buildAlexaResponse(
+          '看護師さんへの電話発信を開始しました。電話がつながらない場合は、別の連絡手段を使ってください。'
+        );
       } catch (err) {
         console.error('Failed to call nurse:', err);
-        return buildAlexaResponse('申し訳ありません。看護師への連絡に失敗しました。もう一度お試しください。');
+        return buildAlexaResponse(
+          '看護師さんへの電話発信を開始できませんでした。別の連絡手段を使ってください。'
+        );
       }
     }
 

@@ -54,8 +54,8 @@ graph TD
 2. ASK validates Skill ID and forwards to Lambda.
 3. Lambda calls `twilio.calls.create()` with a Japanese TTS TwiML string
    (`<Say language="ja-JP">`).
-4. On success, Lambda responds to Alexa: "看護師に連絡しました。もうしばらくお待ちください。"
-5. On Twilio API failure, Lambda responds with an error message and logs to CloudWatch.
+4. On success, Lambda responds to Alexa that the call has started; it does not claim that the caregiver answered.
+5. On Twilio API failure, Lambda tells the user to use another contact method and logs the failure to CloudWatch.
 
 ---
 
