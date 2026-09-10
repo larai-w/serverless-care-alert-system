@@ -55,3 +55,12 @@ test('Webhook を足しても Alexa の経路は変わらない', async () => {
   const r = await handler({ request: { type: 'LaunchRequest' } });
   assert.match(r.response.outputSpeech.text, /ナースコール/);
 });
+
+test('Alexa の返答は発信開始と通話成立を混同しない', async () => {
+  const r = await handler({
+    request: { type: 'IntentRequest', intent: { name: 'CallNurseIntent' } },
+  });
+  assert.match(r.response.outputSpeech.text, /電話発信を開始できませんでした/);
+  assert.match(r.response.outputSpeech.text, /別の連絡手段/);
+  assert.doesNotMatch(r.response.outputSpeech.text, /電話を鳴らしました/);
+});

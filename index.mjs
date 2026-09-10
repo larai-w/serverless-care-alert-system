@@ -409,13 +409,20 @@ export const handler = async (event) => {
         await callNurse(buildAlertMessage(), { callbackBase: callbackBaseFrom(event) });
         // **電話のあとに通知する。** 通知が先だと、通報が遅れる。
         await notifyFamilyOnLine(buildFamilyMessage('placed'));
-        return buildAlexaResponse('看護師さんの電話を鳴らしました。呼びかけがあるまでお待ちください。');
+        // ⚠️ **「発信を開始した」以上のことを言わない。**
+        // main の 6b4042a で直した文言をそのまま使う。再発信の仕組みが
+        // 入っても、この時点で分かっているのは「かけ始めた」ことだけ。
+        return buildAlexaResponse(
+          '看護師さんへの電話発信を開始しました。電話がつながらない場合は、別の連絡手段を使ってください。'
+        );
       } catch (err) {
         console.error('Failed to call nurse:', err);
         // **失敗こそ家族に伝える。** 呼んだ本人には音声で伝わるが、
         // 家族はメールしか受け取れず、夜間は気づけない。
         await notifyFamilyOnLine(buildFamilyMessage('failed'));
-        return buildAlexaResponse('申し訳ありません。看護師への連絡に失敗しました。もう一度お試しください。');
+        return buildAlexaResponse(
+          '看護師さんへの電話発信を開始できませんでした。別の連絡手段を使ってください。'
+        );
       }
     }
 
