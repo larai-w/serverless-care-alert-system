@@ -116,3 +116,30 @@ test('通報の入口と結果の入口を取り違えない', async () => {
       'ルートパスが結果の受け口として扱われている（パス分離が効いていない）');
   } finally { restore(); }
 });
+
+test('attempt が数値でなければ、かけ直さずあきらめる', async () => {
+  // **止まらなくなる経路。** `Number('abc')` は NaN で、`NaN >= 2` は false。
+  // そのため上限判定をすり抜けて再発信し、次の callback には `attempt=NaN`
+  // が載る。それもまた NaN なので、**何回でも鳴り続ける**。
+  // 鳴っているのは看護師の携帯なので、これは深夜に人を起こし続ける。
+  const { handler, restore } = await loadHandler();
+  try {
+    for (const bad of ['abc', '', 'NaN', 'null']) {
+      const res = await handler(statusEvent('no-answer', { attempt: bad }));
+      const action = res.statusCode === 200 ? JSON.parse(res.body).action : 'recall-failed';
+      assert.equal(action, 'gave-up',
+        `attempt=${JSON.stringify(bad)} で action=${action}。数えられない回数で鳴らし続けている`);
+    }
+  } finally { restore(); }
+});
+
+test('かけ直しの上限は attempt を切り上げてから数える', async () => {
+  // 小数を渡されても、上限までの回数が増えないこと。
+  const { handler, restore } = await loadHandler();
+  try {
+    const res = await handler(statusEvent('no-answer', { attempt: '1.5' }));
+    const action = res.statusCode === 200 ? JSON.parse(res.body).action : 'recall-failed';
+    assert.equal(action, 'gave-up',
+      `attempt=1.5 で action=${action}。切り上げれば2回目なので、あきらめるべき`);
+  } finally { restore(); }
+});

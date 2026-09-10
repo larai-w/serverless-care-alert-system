@@ -310,7 +310,13 @@ async function handleCallStatus(event) {
   const form = new URLSearchParams(raw);
   const status = form.get('CallStatus');
   const sid = form.get('CallSid');
-  const attempt = Number(event.queryStringParameters?.attempt ?? '1');
+  // **数えられない値は「もう限界」として扱う。**
+  // `Number('abc')` は NaN で、`NaN >= MAX_CALL_ATTEMPTS` は false。
+  // 素直に比較すると上限をすり抜けて再発信し、次の callback にも
+  // `attempt=NaN` が載る。それもまた NaN なので**何回でも鳴り続ける**。
+  // 鳴っているのは看護師の携帯なので、深夜に人を起こし続けることになる。
+  // 小数も切り上げて数える（1.5 を1回目と数えると上限が1回増える）。
+  const attempt = attemptFrom(event.queryStringParameters?.attempt);
 
   console.log(`Call status: ${status} (sid ${sid}, attempt ${attempt})`);
 
@@ -345,6 +351,17 @@ async function handleCallStatus(event) {
     await notifyFamilyOnLine(buildFamilyMessage('failed'));
     return reply(502, { error: 'recall failed' });
   }
+}
+
+/**
+ * 何回目の発信かを読む。**読めなければ上限とみなす。**
+ * 迷ったときに「鳴らさない」側へ倒す。鳴りすぎは無視につながり、
+ * 本当に必要なときに効かなくなる。
+ */
+function attemptFrom(raw) {
+  const n = Number(raw ?? '1');
+  if (!Number.isFinite(n) || n < 1) return MAX_CALL_ATTEMPTS;
+  return Math.ceil(n);
 }
 
 /**
