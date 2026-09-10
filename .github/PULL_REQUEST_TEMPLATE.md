@@ -15,8 +15,9 @@ What user/operational outcome does this change support?
 
 - [ ] `npm test` passed or relevant tests were documented
 - [ ] `node --check index.mjs` passed
+- [ ] `python3 scripts/check_public_repo.py --staged` was run
 - [ ] Manual acceptance check performed for call/voice-related behavior when applicable
-- [ ] `python3 scripts/check_public_repo.py --staged` was run (no violations)
+- [ ] Production-impact risk is documented
 
 ## Safety / Policy
 
@@ -25,4 +26,4 @@ What user/operational outcome does this change support?
 
 ## Risk and rollback
 
-- [ ] Any production/behavior impact is documented with fallback
+- [ ] Impact / containment plan is documented
