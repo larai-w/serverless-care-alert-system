@@ -17,6 +17,9 @@ Built to explore the feasibility of hands-free alert delivery in home-care setti
 
 Contributions are welcome. Please check [CONTRIBUTING](./CONTRIBUTING.md) before opening issues or PRs.
 
+- Quick start for first contributions: open an issue with the [Good first issue](https://github.com/larai-w/serverless-care-alert-system/issues/new/choose) template.
+- For code changes, open a pull request from [Compare changes](https://github.com/larai-w/serverless-care-alert-system/compare).
+
 ## Status & Limitations
 
 | State | Detail |
