@@ -13,6 +13,10 @@ Built to explore the feasibility of hands-free alert delivery in home-care setti
 
 ---
 
+## Contributing
+
+Contributions are welcome. Please check [CONTRIBUTING](./CONTRIBUTING.md) before opening issues or PRs.
+
 ## Status & Limitations
 
 | State | Detail |
