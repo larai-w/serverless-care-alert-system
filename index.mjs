@@ -1,3 +1,4 @@
+import https from 'https';
 import twilio from 'twilio';
 
 const {
@@ -12,26 +13,63 @@ const {
   // 物理ボタンからの Webhook を認証する共有シークレット。
   // 未設定なら Webhook 入口は無効(誰でも通報できる状態にしない)。
   BUTTON_SHARED_SECRET,
+  // 家族への LINE 通知。**未設定でも通報は動く**(通知は付加物)。
+  LINE_CHANNEL_ACCESS_TOKEN,
+  LINE_USER_ID,
+  // Twilio に伝える折り返し先の基点(この関数の関数URL)。
+  // ⚠️ **Alexa 経由の呼び出しでは host が取れない。**
+  // Alexa は関数URLではなく Lambda を直接呼ぶため、イベントに host が無い。
+  // 夜間に一番使うのは Alexa 経路なので、ここが空だと
+  // **肝心の経路だけ通話結果を受け取れない**。だから環境変数で持つ。
+  PUBLIC_CALLBACK_BASE,
 } = process.env;
+
+// LINE API を待つ上限。**電話より長く待たない。**
+// 通知のために通報が遅れたら本末転倒(CLAUDE.md §2.6)。
+const LINE_TIMEOUT_MS = 3000;
+
+// 通話結果を受け取る入口のパス。ボタン通報と同じ関数URLだが、
+// **パスで分ける**。同じ入口にすると、Twilio からの通知で
+// もう一度通報を起こしてしまう。
+const STATUS_CALLBACK_PATH = '/twilio-status';
+
+// 再発信は1回だけ。**何度も鳴らすと、本当に必要なときに無視される。**
+const MAX_CALL_ATTEMPTS = 2;
 
 /**
  * Twilio 経由で介護者の電話番号に自動音声通話を発信する。
  * @param {string} message - 読み上げるメッセージ
  */
-async function callNurse(message) {
+async function callNurse(message, { attempt = 1, callbackBase = null } = {}) {
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_FROM_NUMBER || !NURSE_PHONE_NUMBER) {
     throw new Error('Required Twilio environment variables are not set.');
   }
 
   const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
 
-  const call = await client.calls.create({
+  const params = {
     twiml: `<Response><Say language="ja-JP">${message}</Say></Response>`,
     to: NURSE_PHONE_NUMBER,
     from: TWILIO_FROM_NUMBER,
-  });
+  };
 
-  console.log(`Call initiated: ${call.sid}`);
+  // **「かけた」は「つながった」ではない。**
+  // Twilio に結果を知らせてもらう。これが無いと、看護師が出なかったことを
+  // 誰も知らないまま終わる(2026-08-27 まではその状態だった)。
+  //
+  // 何回目の発信かを URL に載せる。**保存先を持たずに再発信を1回に抑える**ため。
+  // 再発信の通知には attempt=2 が付くので、そこからさらに再発信しない。
+  if (callbackBase && BUTTON_SHARED_SECRET) {
+    params.statusCallback =
+      `${callbackBase}${STATUS_CALLBACK_PATH}` +
+      `?secret=${encodeURIComponent(BUTTON_SHARED_SECRET)}&attempt=${attempt}`;
+    params.statusCallbackMethod = 'POST';
+    params.statusCallbackEvent = ['completed'];
+  }
+
+  const call = await client.calls.create(params);
+
+  console.log(`Call initiated: ${call.sid} (attempt ${attempt})`);
   return call.sid;
 }
 
@@ -98,12 +136,232 @@ async function handleButtonWebhook(event) {
   }
 
   try {
-    const sid = await callNurse(buildAlertMessage());
+    const sid = await callNurse(buildAlertMessage(), {
+      callbackBase: callbackBaseFrom(event),
+    });
+    await notifyFamilyOnLine(buildFamilyMessage('placed'));
     return reply(200, { ok: true, callSid: sid });
   } catch (err) {
     console.error('Failed to call nurse from button webhook:', err);
+    await notifyFamilyOnLine(buildFamilyMessage('failed'));
     return reply(502, { error: 'call failed' });
   }
+}
+
+/**
+ * 家族の LINE へ通知する。**通報の付加物であって、通報そのものではない。**
+ *
+ * なぜ要るか(2026-08-27):
+ *   発信に失敗したとき、呼んだ本人には音声で伝わるが、家族には
+ *   **CloudWatch アラーム経由のメールしか届かない**。夜中の3時にメールは
+ *   届いても気づけない。成功したときも、家族は「呼ばれたこと」を知らない。
+ *
+ * 設計の約束:
+ *   1. **電話が先、LINE は後。** 順番を逆にしない
+ *   2. **絶対に throw しない。** LINE の失敗で通報を止めない
+ *   3. **未設定なら黙って何もしない。** 通知は付加物なので、
+ *      無くても通報は成立する
+ *   4. **待ち時間に上限を置く。** 応答しない LINE API に引きずられない
+ *
+ * ⚠️ **LINE は代替手段ではない。** 通信が死んでいれば電話も LINE も鳴らない。
+ * 確実に鳴る物理的な手段の併用が前提であることは変わらない。
+ *
+ * @returns {Promise<{sent: boolean, reason?: string}>} 例外は投げない
+ */
+async function notifyFamilyOnLine(text) {
+  if (!LINE_CHANNEL_ACCESS_TOKEN || !LINE_USER_ID) {
+    // 設定していないだけ。**失敗ではない**ので警告にしない。
+    console.log('LINE notify skipped: not configured');
+    return { sent: false, reason: 'not configured' };
+  }
+
+  const body = JSON.stringify({
+    to: LINE_USER_ID,
+    messages: [{ type: 'text', text }],
+  });
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+
+    const req = https.request(
+      {
+        hostname: 'api.line.me',
+        path: '/v2/bot/message/push',
+        method: 'POST',
+        timeout: LINE_TIMEOUT_MS,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`,
+          'Content-Length': Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            // 成功も残す。失敗しか記録が無いと
+            // 「送ったつもりで届いていない」を切り分けられない。
+            console.log(`LINE notify ok: ${res.statusCode}`);
+            done({ sent: true });
+          } else {
+            console.error(`LINE notify failed: ${res.statusCode} ${data}`);
+            done({ sent: false, reason: `http ${res.statusCode}` });
+          }
+        });
+      }
+    );
+
+    req.on('timeout', () => {
+      console.error(`LINE notify timed out after ${LINE_TIMEOUT_MS}ms`);
+      req.destroy();
+      done({ sent: false, reason: 'timeout' });
+    });
+    req.on('error', (err) => {
+      console.error('LINE notify error:', err.message);
+      done({ sent: false, reason: err.message });
+    });
+
+    req.write(body);
+    req.end();
+  });
+}
+
+/**
+ * 家族へ送る文面。**成功と失敗で、読んだ人がすることが変わる。**
+ */
+function buildFamilyMessage(outcome) {
+  const who = PATIENT_NAME ? `${PATIENT_NAME}さん` : '患者さん';
+  const at = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+  switch (outcome) {
+    case 'placed':
+      return `【ナースコール】${who}が看護師を呼びました。\n${at}\n看護師の電話を鳴らしています。`;
+    case 'answered':
+      return `【ナースコール】看護師が電話に出ました。\n${at}`;
+    case 'retrying':
+      return `【ナースコール】看護師が電話に出ませんでした。\n${at}\nもう一度かけ直しています。`;
+    case 'unanswered':
+      // **一番伝えたい状態。**「呼んだのに誰も来ない」が起きている。
+      return `【ナースコール応答なし】${who}が看護師を呼びましたが、${MAX_CALL_ATTEMPTS}回とも電話に出ませんでした。\n${at}\n**すぐに様子を見てください。**`;
+    default:
+      return `【ナースコール失敗】${who}が看護師を呼びましたが、電話の発信に失敗しました。\n${at}\n**別の手段で確認してください。**`;
+  }
+}
+
+
+/**
+ * 呼び出し元の関数URLの基点を組み立てる。Twilio に折り返し先を伝えるため。
+ * 取れなければ `null`。**取れなくても通報は成立する**ので落とさない。
+ */
+export function callbackBaseFrom(event) {
+  const host = event?.headers?.host ?? event?.requestContext?.domainName;
+  if (host) return `https://${host}`;
+  // Alexa 経由など、イベントから取れない場合の受け皿。
+  return PUBLIC_CALLBACK_BASE || null;
+}
+
+/**
+ * Twilio からの通話結果を受ける。
+ *
+ * **なぜ要るか(2026-08-27)**
+ *   `client.calls.create()` は「発信を受け付けた」ことしか返さない。
+ *   **看護師が出たかどうかを、システムは知らなかった。**
+ *   `Call initiated` は「かけた」であって「つながった」ではない。
+ *   夜間に動けない状態で使う仕組みなので、
+ *   「呼んだのに誰も来ない」に気づけないのは重い。
+ *
+ * **やること**
+ *   - 出なかった(no-answer / busy / failed / canceled)なら **1回だけ**かけ直す
+ *   - 出なかったことを家族の LINE に伝える
+ *   - つながったことも伝える(「呼んだのに来ない」と区別するため)
+ *
+ * **再発信を1回に抑える方法**
+ *   保存先を持たず、折り返し先 URL の `attempt` で数える。
+ *   再発信の通知には `attempt=2` が付くので、そこからは再発信しない。
+ *   **状態を持たない分、壊れる箇所が減る。**
+ */
+async function handleCallStatus(event) {
+  const reply = (statusCode, body) => ({
+    statusCode,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!BUTTON_SHARED_SECRET) {
+    console.error('BUTTON_SHARED_SECRET is not set; status callback is disabled.');
+    return reply(503, { error: 'callback disabled' });
+  }
+
+  const provided = event.queryStringParameters?.secret;
+  if (!provided || !timingSafeEqualString(provided, BUTTON_SHARED_SECRET)) {
+    console.warn('Status callback rejected: bad or missing secret.');
+    return reply(401, { error: 'unauthorized' });
+  }
+
+  // Twilio は application/x-www-form-urlencoded で送ってくる。
+  const raw = event.isBase64Encoded
+    ? Buffer.from(event.body ?? '', 'base64').toString('utf8')
+    : (event.body ?? '');
+  const form = new URLSearchParams(raw);
+  const status = form.get('CallStatus');
+  const sid = form.get('CallSid');
+  // **数えられない値は「もう限界」として扱う。**
+  // `Number('abc')` は NaN で、`NaN >= MAX_CALL_ATTEMPTS` は false。
+  // 素直に比較すると上限をすり抜けて再発信し、次の callback にも
+  // `attempt=NaN` が載る。それもまた NaN なので**何回でも鳴り続ける**。
+  // 鳴っているのは看護師の携帯なので、深夜に人を起こし続けることになる。
+  // 小数も切り上げて数える（1.5 を1回目と数えると上限が1回増える）。
+  const attempt = attemptFrom(event.queryStringParameters?.attempt);
+
+  console.log(`Call status: ${status} (sid ${sid}, attempt ${attempt})`);
+
+  if (status === 'completed') {
+    await notifyFamilyOnLine(buildFamilyMessage('answered'));
+    return reply(200, { ok: true, status, action: 'none' });
+  }
+
+  const missed = ['no-answer', 'busy', 'failed', 'canceled'];
+  if (!missed.includes(status)) {
+    // ringing など途中の状態。何もしない。
+    return reply(200, { ok: true, status, action: 'none' });
+  }
+
+  if (attempt >= MAX_CALL_ATTEMPTS) {
+    // **鳴らし続けない。** 何度も鳴らすと、本当に必要なときに無視される。
+    console.warn(`Nurse did not answer after ${attempt} attempts.`);
+    await notifyFamilyOnLine(buildFamilyMessage('unanswered'));
+    return reply(200, { ok: true, status, action: 'gave-up' });
+  }
+
+  try {
+    const nextSid = await callNurse(buildAlertMessage(), {
+      attempt: attempt + 1,
+      callbackBase: callbackBaseFrom(event),
+    });
+    // かけ直したことも伝える。**黙ってやり直さない。**
+    await notifyFamilyOnLine(buildFamilyMessage('retrying'));
+    return reply(200, { ok: true, status, action: 'retried', callSid: nextSid });
+  } catch (err) {
+    console.error('Failed to re-call nurse:', err);
+    await notifyFamilyOnLine(buildFamilyMessage('failed'));
+    return reply(502, { error: 'recall failed' });
+  }
+}
+
+/**
+ * 何回目の発信かを読む。**読めなければ上限とみなす。**
+ * 迷ったときに「鳴らさない」側へ倒す。鳴りすぎは無視につながり、
+ * 本当に必要なときに効かなくなる。
+ */
+function attemptFrom(raw) {
+  const n = Number(raw ?? '1');
+  if (!Number.isFinite(n) || n < 1) return MAX_CALL_ATTEMPTS;
+  return Math.ceil(n);
 }
 
 /**
@@ -131,6 +389,12 @@ export const handler = async (event) => {
   // Lambda 関数URL 経由で来るため、Alexa のイベントとは形が違う
   // (requestContext を持ち、request.type を持たない)。
   if (event?.requestContext?.http) {
+    // **パスで分ける。** 同じ入口にすると、Twilio からの通話結果の通知で
+    // もう一度通報を起こしてしまう。
+    const path = event.requestContext.http.path ?? '/';
+    if (path === STATUS_CALLBACK_PATH) {
+      return handleCallStatus(event);
+    }
     return handleButtonWebhook(event);
   }
 
@@ -159,12 +423,20 @@ export const handler = async (event) => {
         // 看護師は電話を取った時点でスマホを手にしているので、
         // Alexa アプリからの呼びかけは1操作で済む。
         // 患者側の Echo は呼びかけを自動で受けるため、手が使えなくても会話できる。
-        await callNurse(buildAlertMessage());
+        await callNurse(buildAlertMessage(), { callbackBase: callbackBaseFrom(event) });
+        // **電話のあとに通知する。** 通知が先だと、通報が遅れる。
+        await notifyFamilyOnLine(buildFamilyMessage('placed'));
+        // ⚠️ **「発信を開始した」以上のことを言わない。**
+        // main の 6b4042a で直した文言をそのまま使う。再発信の仕組みが
+        // 入っても、この時点で分かっているのは「かけ始めた」ことだけ。
         return buildAlexaResponse(
           '看護師さんへの電話発信を開始しました。電話がつながらない場合は、別の連絡手段を使ってください。'
         );
       } catch (err) {
         console.error('Failed to call nurse:', err);
+        // **失敗こそ家族に伝える。** 呼んだ本人には音声で伝わるが、
+        // 家族はメールしか受け取れず、夜間は気づけない。
+        await notifyFamilyOnLine(buildFamilyMessage('failed'));
         return buildAlexaResponse(
           '看護師さんへの電話発信を開始できませんでした。別の連絡手段を使ってください。'
         );
