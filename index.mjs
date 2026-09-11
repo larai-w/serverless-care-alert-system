@@ -379,10 +379,45 @@ function timingSafeEqualString(a, b) {
 }
 
 /**
+ * ログに出す前に秘密を伏せる。
+ *
+ * なぜ要るか(2026-09-11):
+ *   受け取ったイベントを丸ごとログに出していた。共有シークレットは
+ *   **`rawQueryString` と `x-button-secret` ヘッダー**に載るので、
+ *   Twilio からの折り返しが来るたびに CloudWatch へ平文で1行増える。
+ *   この関数のロググループは**保存期間が無期限**で、消せるのは
+ *   ストリーム単位だけ。1行だけ消すことはできない。
+ *
+ * **消しすぎない。** 経路・メソッド・`attempt` は障害調査に要るので残す。
+ * 秘密そのものだけを `<redacted>` に置き換える。
+ */
+function redactEvent(event) {
+  if (!event || typeof event !== 'object') return event;
+  const mask = '<redacted>';
+  const out = { ...event };
+
+  if (typeof out.rawQueryString === 'string') {
+    out.rawQueryString = out.rawQueryString.replace(/(^|&)secret=[^&]*/g, `$1secret=${mask}`);
+  }
+  if (out.queryStringParameters?.secret !== undefined) {
+    out.queryStringParameters = { ...out.queryStringParameters, secret: mask };
+  }
+  if (out.headers) {
+    const h = { ...out.headers };
+    // ヘッダー名は大文字小文字が揺れる。関数URLは小文字化するが、前提にしない。
+    for (const k of Object.keys(h)) {
+      if (k.toLowerCase() === 'x-button-secret') h[k] = mask;
+    }
+    out.headers = h;
+  }
+  return out;
+}
+
+/**
  * AWS Lambda ハンドラー。Alexa からのリクエストを処理する。
  */
 export const handler = async (event) => {
-  console.log('Received event:', JSON.stringify(event, null, 2));
+  console.log('Received event:', JSON.stringify(redactEvent(event), null, 2));
 
   // --- 物理ボタンからの Webhook -------------------------------------------
   // 声が出しにくいときの入口。Alexa と同じ通報を起こす。
