@@ -1,0 +1,29 @@
+name: Good first issue
+description: Entry-level task for safe first contributions.
+title: "[Good first] "
+labels:
+  - good first issue
+  - help wanted
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project is a research prototype. Use this template for small, low-risk changes.
+        Do not include credentials, phone numbers, or sensitive user details.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Task summary
+      description: Small change request and expected outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      value: |
+        - [ ] Work is small and reviewable
+        - [ ] Verification steps are included
+        - [ ] No secrets or protected data were used
+    validations:
+      required: true
