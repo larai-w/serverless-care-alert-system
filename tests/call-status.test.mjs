@@ -21,12 +21,18 @@ function statusEvent(status, { attempt = 1, secret = SECRET } = {}) {
 
 async function loadHandler(env = {}) {
   const saved = { ...process.env };
+  // 回帰テストは実際のTwilio APIへ接続しない。資格情報がローカル環境に
+  // 残っていても、callNurseの設定不足経路を通して安全に再発信失敗を検証する。
+  for (const key of [
+    'TWILIO_ACCOUNT_SID',
+    'TWILIO_AUTH_TOKEN',
+    'TWILIO_FROM_NUMBER',
+    'NURSE_PHONE_NUMBER',
+  ]) {
+    delete process.env[key];
+  }
   Object.assign(process.env, {
     BUTTON_SHARED_SECRET: SECRET,
-    TWILIO_ACCOUNT_SID: 'AC-test',
-    TWILIO_AUTH_TOKEN: 'token',
-    TWILIO_FROM_NUMBER: '+10000000000',
-    NURSE_PHONE_NUMBER: '+81000000000',
     PUBLIC_CALLBACK_BASE: BASE,
     ...env,
   });
@@ -88,16 +94,12 @@ test('2回目でも出なければ、あきらめて家族に知らせる', asyn
 });
 
 test('出なかったときは、かけ直す（1回目）', async () => {
-  // Twilio 認証情報はダミーなので発信自体は失敗する。
-  // ここで見たいのは「かけ直そうとするか」。
+  // Twilio資格情報を意図的に外し、外部接続なしで再発信経路を検証する。
+  // ここで見たいのは「何もしない」ではなく、再発信を試みた結果に失敗すること。
   const { handler, restore } = await loadHandler();
   try {
     const res = await handler(statusEvent('no-answer', { attempt: 1 }));
-    // 発信を試みた結果、成功(retried)か失敗(502)のどちらか。
-    // **何もしない(none / gave-up)にはならない。**
-    const action = res.statusCode === 200 ? JSON.parse(res.body).action : 'recall-failed';
-    assert.ok(['retried', 'recall-failed'].includes(action),
-      `出なかったのに action=${action}。かけ直そうとしていない`);
+    assert.equal(res.statusCode, 502, '再発信の設定不足を明確に失敗として返す');
   } finally { restore(); }
 });
 

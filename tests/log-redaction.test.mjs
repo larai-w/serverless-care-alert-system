@@ -22,10 +22,18 @@ function capture(fn) {
 
 async function loadHandler() {
   const saved = { ...process.env };
+  // ログ検証は外部通話を必要としない。ローカル環境の資格情報を消して、
+  // 誤って実際のTwilio APIへ接続しないようにする。
+  for (const key of [
+    'TWILIO_ACCOUNT_SID',
+    'TWILIO_AUTH_TOKEN',
+    'TWILIO_FROM_NUMBER',
+    'NURSE_PHONE_NUMBER',
+  ]) {
+    delete process.env[key];
+  }
   Object.assign(process.env, {
     BUTTON_SHARED_SECRET: SECRET,
-    TWILIO_ACCOUNT_SID: 'AC-test', TWILIO_AUTH_TOKEN: 'token',
-    TWILIO_FROM_NUMBER: '+10000000000', NURSE_PHONE_NUMBER: '+81000000000',
   });
   const mod = await import(`../index.mjs?redact=${Date.now()}${Math.random()}`);
   return { handler: mod.handler, restore: () => {
