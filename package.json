@@ -1,7 +1,7 @@
 {
   "name": "serverless-care-alert-system",
   "version": "1.0.0",
-  "description": "A serverless, voice-activated emergency alert system designed for home care and visiting nurses. This project allows patients or elderly users to call for assistance hands-free via Amazon Echo, triggering an automated phone call to the assigned nurse's smartphone.",
+  "description": "A serverless research prototype for voice-triggered care alerts using Amazon Alexa and Twilio. It is not for clinical or emergency use.",
   "main": "index.mjs",
   "scripts": {
     "test": "node --test tests/*.test.mjs"
@@ -12,7 +12,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "type": "module",
   "bugs": {
     "url": "https://github.com/larai-w/serverless-care-alert-system/issues"
