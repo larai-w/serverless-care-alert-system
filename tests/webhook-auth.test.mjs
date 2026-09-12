@@ -53,7 +53,19 @@ test('正しいシークレットなら通報処理まで進む（クエリ文�
 
 test('Webhook を足しても Alexa の経路は変わらない', async () => {
   const r = await handler({ request: { type: 'LaunchRequest' } });
-  assert.match(r.response.outputSpeech.text, /ナースコール/);
+  assert.match(r.response.outputSpeech.text, /看護師を呼んで/);
+});
+
+test('起動とヘルプで研究プロトタイプの状態を取り違えない', async () => {
+  const launch = await handler({ request: { type: 'LaunchRequest' } });
+  assert.match(launch.response.outputSpeech.text, /緊急通報サービスではありません/);
+
+  const help = await handler({
+    request: { type: 'IntentRequest', intent: { name: 'AMAZON.HelpIntent' } },
+  });
+  assert.match(help.response.outputSpeech.text, /電話発信を始めます/);
+  assert.match(help.response.outputSpeech.text, /応答したかは確認できません/);
+  assert.match(help.response.outputSpeech.text, /別の連絡手段/);
 });
 
 test('Alexa の返答は発信開始と通話成立を混同しない', async () => {

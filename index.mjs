@@ -442,7 +442,7 @@ export const handler = async (event) => {
 
   if (requestType === 'LaunchRequest') {
     return buildAlexaResponse(
-      'ナースコールシステムを起動しました。看護師を呼ぶには「看護師を呼んで」と話しかけてください。',
+      '連絡用の試作システムを起動しました。これは緊急通報サービスではありません。設定された連絡先へ電話を始めるには「看護師を呼んで」と話しかけてください。',
       false
     );
   }
@@ -484,7 +484,7 @@ export const handler = async (event) => {
 
     if (intentName === 'AMAZON.HelpIntent') {
       return buildAlexaResponse(
-        '「看護師を呼んで」と話しかけると、担当の看護師に電話でお知らせします。',
+        '「看護師を呼んで」と話しかけると、設定された連絡先への電話発信を始めます。相手が応答したかは確認できません。緊急時は別の連絡手段を使ってください。',
         false
       );
     }
