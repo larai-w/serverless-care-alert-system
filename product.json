@@ -1,0 +1,87 @@
+{
+	"$schema": "https://raw.githubusercontent.com/larai-w/veai-jp-web/main/schemas/product.schema.json",
+	"schemaVersion": 1,
+	"slug": "echocare",
+	"name": "EchoCare",
+	"portfolioRole": "voice-care-alert-research",
+	"audiences": [
+		"family-caregiver",
+		"care-recipient",
+		"care-professional",
+		"researcher",
+		"technical-reviewer"
+	],
+	"availability": {
+		"stage": "research-prototype",
+		"access": "public",
+		"summary": {
+			"en": "A public research prototype that explores voice-triggered care alerts. It is not available for clinical or emergency use.",
+			"ja": "音声によるケア呼び出しを検証する公開中の研究プロトタイプです。臨床・救急の用途では利用できません。"
+		}
+	},
+	"evidenceLevel": "prototype",
+	"canonicalRepository": "https://github.com/larai-w/serverless-care-alert-system",
+	"publicUrls": {
+		"productPage": "https://veai.jp/apps/echocare/",
+		"project": "https://github.com/users/larai-w/projects/11"
+	},
+	"lastVerified": "2026-09-12",
+	"site": {
+		"status": "research-prototype",
+		"order": 7,
+		"icon": "🗣️",
+		"themeColor": "#e8eef4",
+		"techStack": [
+			"AWS Serverless",
+			"Amazon Alexa",
+			"Twilio Programmable Voice"
+		],
+		"en": {
+			"name": "EchoCare",
+			"tagline": "A research prototype for voice-enabled care alerts",
+			"description": "An early-stage serverless prototype exploring voice-based care alerts for people who find a physical call button hard to use. Not currently available for clinical or emergency use."
+		},
+		"ja": {
+			"name": "EchoCare",
+			"kana": "エコケア",
+			"tagline": "音声によるケア呼び出しの、研究プロトタイプ",
+			"description": "呼び出しボタンを押しにくい方のための、音声ケア呼び出しを検証している初期段階の研究プロトタイプです。現在、臨床・救急の用途ではご利用いただけません。"
+		}
+	},
+	"capabilities": [
+		{
+			"id": "voice-request-to-call-start",
+			"label": {
+				"en": "Alexa voice request that starts an outbound call",
+				"ja": "Alexaの音声要求から開始する発信"
+			},
+			"status": "prototype",
+			"evidenceUrls": [
+				"https://github.com/larai-w/serverless-care-alert-system#call-flow-code-verified"
+			]
+		},
+		{
+			"id": "single-configured-recipient",
+			"label": {
+				"en": "Single configured call recipient",
+				"ja": "設定済みの単一通話先"
+			},
+			"status": "prototype",
+			"evidenceUrls": [
+				"https://github.com/larai-w/serverless-care-alert-system#status--limitations"
+			]
+		}
+	],
+	"boundaries": {
+		"en": [
+			"EchoCare is a research prototype, not a clinical or emergency service.",
+			"A successful request starts a call but does not establish that a caregiver answered or acted.",
+			"The current prototype has one configured recipient and does not provide multi-user routing, response tracking, or retry logic."
+		],
+		"ja": [
+			"EchoCareは研究プロトタイプであり、臨床・救急サービスではありません。",
+			"要求が成功しても発信開始を示すだけで、支援者が応答・対応したことは示しません。",
+			"現行プロトタイプは通話先が1件固定で、複数利用者のルーティング、応答状況の記録、再試行は提供しません。"
+		]
+	}
+}
