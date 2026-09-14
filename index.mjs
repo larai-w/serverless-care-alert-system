@@ -33,6 +33,12 @@ const LINE_TIMEOUT_MS = 3000;
 // もう一度通報を起こしてしまう。
 const STATUS_CALLBACK_PATH = '/twilio-status';
 
+// **段階的に切り替えるための旗。** 既定は off。
+// 署名検証が本番のイベント形で本当に通ることをログで確かめてから on にする。
+// ナースコールの経路なので、ここを一気に切り替えて 401 になると
+// 「看護師が出なかった」という一番伝えたい通知が黙って消える。
+const REQUIRE_TWILIO_SIGNATURE = process.env.REQUIRE_TWILIO_SIGNATURE === '1';
+
 // 再発信は1回だけ。**何度も鳴らすと、本当に必要なときに無視される。**
 const MAX_CALL_ATTEMPTS = 2;
 
@@ -297,17 +303,31 @@ async function handleCallStatus(event) {
     return reply(503, { error: 'callback disabled' });
   }
 
-  const provided = event.queryStringParameters?.secret;
-  if (!provided || !timingSafeEqualString(provided, BUTTON_SHARED_SECRET)) {
-    console.warn('Status callback rejected: bad or missing secret.');
-    return reply(401, { error: 'unauthorized' });
-  }
-
   // Twilio は application/x-www-form-urlencoded で送ってくる。
+  // **署名の対象なので、認証より先に読む。**
   const raw = event.isBase64Encoded
     ? Buffer.from(event.body ?? '', 'base64').toString('utf8')
     : (event.body ?? '');
   const form = new URLSearchParams(raw);
+  const formParams = Object.fromEntries(form.entries());
+
+  const sig = verifyTwilioSignature(event, formParams);
+  // **毎回残す。** 旗を立てる前に、本番のイベント形で本当に通るかを
+  // ログで確かめるための材料。
+  console.log(`Status callback signature: ${sig.reason}`);
+
+  if (REQUIRE_TWILIO_SIGNATURE) {
+    if (!sig.valid) {
+      console.warn(`Status callback rejected: signature ${sig.reason}.`);
+      return reply(401, { error: 'unauthorized' });
+    }
+  } else {
+    const provided = event.queryStringParameters?.secret;
+    if (!provided || !timingSafeEqualString(provided, BUTTON_SHARED_SECRET)) {
+      console.warn('Status callback rejected: bad or missing secret.');
+      return reply(401, { error: 'unauthorized' });
+    }
+  }
   const status = form.get('CallStatus');
   const sid = form.get('CallSid');
   // **数えられない値は「もう限界」として扱う。**
@@ -362,6 +382,42 @@ function attemptFrom(raw) {
   const n = Number(raw ?? '1');
   if (!Number.isFinite(n) || n < 1) return MAX_CALL_ATTEMPTS;
   return Math.ceil(n);
+}
+
+/**
+ * Twilio からの POST であることを署名で確かめる。
+ *
+ * なぜ要るか:
+ *   いまは共有シークレットを statusCallback の **URL クエリ**に載せている。
+ *   URL は Twilio 側の通話ログに保存されるので、**そこを見られる人には
+ *   シークレットが見える**。署名なら秘密は URL に出ない。
+ *
+ * 署名対象は Twilio が実際に叩いた URL そのもの。`rawQueryString` が無いと
+ * 並び順を復元できず、正しい要求でも不一致になる。**その場合は「検証できて
+ * いない」と言う。「不正」とは言わない。**
+ *
+ * @returns {{valid: boolean, reason: string}}
+ */
+function verifyTwilioSignature(event, formParams) {
+  const signature = event?.headers?.['x-twilio-signature'];
+  if (!signature) return { valid: false, reason: 'absent' };
+  if (!TWILIO_AUTH_TOKEN) return { valid: false, reason: 'no auth token' };
+
+  const base = callbackBaseFrom(event);
+  if (!base) return { valid: false, reason: 'no callback base' };
+
+  const rawQuery = event?.rawQueryString;
+  if (typeof rawQuery !== 'string') return { valid: false, reason: 'no raw query' };
+
+  const url = `${base}${STATUS_CALLBACK_PATH}${rawQuery ? `?${rawQuery}` : ''}`;
+  try {
+    const ok = twilio.validateRequest(TWILIO_AUTH_TOKEN, signature, url, formParams);
+    return { valid: ok, reason: ok ? 'ok' : 'mismatch' };
+  } catch (err) {
+    // 検証そのものが落ちた。**通す理由にはしない。**
+    console.error('Twilio signature check threw:', err.message);
+    return { valid: false, reason: 'error' };
+  }
 }
 
 /**
