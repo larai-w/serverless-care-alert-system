@@ -133,7 +133,11 @@ test('未設定なら黙って何もしない（通報は動く）', () => {
 test('文面で成功と失敗が見分けられる', () => {
   // **読んだ人がすることが変わる。** 同じ文面だと、失敗に気づけない。
   const start = SRC.indexOf('function buildFamilyMessage');
-  const body = SRC.slice(start, start + 800);
+  // ⚠️ 以前は先頭から 800 文字だけを見ていて、文面にコメントを足しただけで失敗の文面が範囲外に出た（2026-09-14）。
+  // 文字数ではなく、関数の終わり（行頭の `}`）までを見る。
+  const end = SRC.indexOf('\n}\n', start);
+  assert.ok(start !== -1 && end !== -1, 'buildFamilyMessage の範囲が取れない');
+  const body = SRC.slice(start, end);
   assert.match(body, /ナースコール失敗/, '失敗の文面が成功と区別できない');
   assert.match(body, /別の手段で確認/, '失敗時に何をすべきか書いていない');
 });
@@ -152,4 +156,65 @@ test('発信直後の家族通知は「鳴っている」と言わない', () =>
   assert.doesNotMatch(placed, /鳴らしています|鳴っています|鳴らしました/,
     '発信を始めただけの時点で「鳴っている」と伝えている');
   assert.match(placed, /発信を始めました/, '発信を始めたことを伝えていない');
+});
+
+// ---------------------------------------------------------------------------
+// 2026-09-14 /hci-check「ナースコールの折り返し」
+// ---------------------------------------------------------------------------
+
+function familyCase(name) {
+  const start = SRC.indexOf('function buildFamilyMessage');
+  assert.ok(start !== -1, 'buildFamilyMessage が無い');
+  const at = SRC.indexOf(`case '${name}':`, start);
+  assert.ok(at !== -1, `buildFamilyMessage に case '${name}' が無い`);
+  const next = SRC.slice(at + 1).search(/case '|default:/);
+  return SRC.slice(at, next === -1 ? undefined : at + 1 + next);
+}
+
+test('つながったときに「看護師が電話に出ました」と言い切らない（#1・#5）', () => {
+  // Twilio の `completed` は、人だけでなく**留守番電話や自動音声メニューが受けても**起こる。
+  // 留守番電話検出を付けていないので、人が出たかをシステムは知らない。
+  // 家族が「出た」と読むと、様子を見に行かなくなる。人が出ても、来てくれるかはまだ分からない。
+  const answered = familyCase('answered');
+  assert.doesNotMatch(answered, /電話に出ました/, '留守番電話でも「看護師が電話に出ました」と伝えている');
+  assert.match(answered, /つながりました/, 'つながったことを伝えていない');
+  assert.match(answered, /留守番電話/, '留守番電話の場合もあることを伝えていない');
+  assert.match(answered, /来てもらえるか/, '来てもらえるかはまだ分からないことを伝えていない');
+});
+
+test('かけ直しに失敗したら、1回目に出なかったことも伝える（#6）', () => {
+  // 以前は `failed`（「電話の発信に失敗しました」）を送っていた。
+  // 1回目は発信できて出なかったのに、最初からかけられなかったように読める。
+  assert.match(SRC, /Failed to re-call nurse[\s\S]{0,300}?buildFamilyMessage\('recall-failed'\)/,
+    'かけ直しの失敗で、専用の文面を送っていない');
+  const recallFailed = familyCase('recall-failed');
+  assert.match(recallFailed, /ナースコール失敗/, '失敗の文面が成功と区別できない');
+  assert.match(recallFailed, /出ず|出ませんでした/, '1回目に出なかったことを伝えていない');
+  assert.match(recallFailed, /かけ直し/, 'かけ直しに失敗したことを伝えていない');
+  assert.match(recallFailed, /別の手段で確認/, '何をすべきか書いていない');
+});
+
+test('2回目の電話は、2回目だと最初に言う（#7）', async () => {
+  // 1回目を寝ていて逃した看護師は、同じ読み上げだと繰り返しだと分からない。
+  const mod = await import(`../index.mjs?alert=${Date.now()}${Math.random()}`);
+  assert.equal(typeof mod.buildAlertMessage, 'function', 'buildAlertMessage を確かめられない');
+  assert.doesNotMatch(mod.buildAlertMessage(), /2回目/, '1回目なのに「2回目」と言っている');
+  assert.match(mod.buildAlertMessage({ attempt: 2 }), /^2回目のお知らせです。/, '2回目だと最初に言っていない');
+  assert.match(SRC, /callNurse\(buildAlertMessage\(\{\s*attempt:\s*attempt \+ 1\s*\}\)/,
+    'かけ直しで、何回目かを読み上げに渡していない');
+});
+
+test('監視の印を変えない（#2）', () => {
+  // CloudWatch のメトリクスフィルタは**この固定文字列**を数える。
+  // 文言を変えると、フィルタは黙って0件になり、アラームは緑のまま（RB-0020「当たらないフィルタは無いより悪い」）。
+  for (const mark of [
+    'Failed to call nurse',
+    'Failed to re-call nurse',
+    'Nurse did not answer',
+    'LINE notify failed',
+    'LINE notify timed out',
+    'LINE notify error',
+  ]) {
+    assert.ok(SRC.includes(mark), `監視の印「${mark}」がコードから消えている`);
+  }
 });
