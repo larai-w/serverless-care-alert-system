@@ -246,7 +246,8 @@ function buildFamilyMessage(outcome) {
   const at = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
   switch (outcome) {
     case 'placed':
-      return `【ナースコール】${who}が看護師を呼びました。\n${at}\n看護師の電話を鳴らしています。`;
+      // 分かっているのは「かけ始めた」ことだけ。鳴ったか・出たかは、このあとの通知で伝える。
+      return `【ナースコール】${who}が看護師を呼びました。\n${at}\n看護師への発信を始めました。`;
     case 'answered':
       return `【ナースコール】看護師が電話に出ました。\n${at}`;
     case 'retrying':

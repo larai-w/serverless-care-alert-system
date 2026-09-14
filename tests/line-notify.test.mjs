@@ -137,3 +137,19 @@ test('文面で成功と失敗が見分けられる', () => {
   assert.match(body, /ナースコール失敗/, '失敗の文面が成功と区別できない');
   assert.match(body, /別の手段で確認/, '失敗時に何をすべきか書いていない');
 });
+
+test('発信直後の家族通知は「鳴っている」と言わない', () => {
+  // **システムが知っている以上を言わない。**（2026-09-14）
+  // Alexa 側は 6b4042a で「電話を鳴らしました」→「発信を開始しました」に直したが、
+  // 家族向けの `placed` だけ「看護師の電話を鳴らしています」が残っていた。
+  // この時点で分かっているのは「かけ始めた」ことだけで、相手の電話が鳴ったかは分からない。
+  // 家族が「もう鳴っているなら大丈夫」と読むと、様子を見に行くのが遅れる。
+  const start = SRC.indexOf('function buildFamilyMessage');
+  assert.ok(start !== -1, 'buildFamilyMessage が無い');
+  const placedAt = SRC.indexOf("case 'placed':", start);
+  assert.ok(placedAt !== -1, "buildFamilyMessage に case 'placed' が無い");
+  const placed = SRC.slice(placedAt, SRC.indexOf('case ', placedAt + 1));
+  assert.doesNotMatch(placed, /鳴らしています|鳴っています|鳴らしました/,
+    '発信を始めただけの時点で「鳴っている」と伝えている');
+  assert.match(placed, /発信を始めました/, '発信を始めたことを伝えていない');
+});
