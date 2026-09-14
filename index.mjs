@@ -84,11 +84,14 @@ async function callNurse(message, { attempt = 1, callbackBase = null } = {}) {
  * Alexa からでも物理ボタンからでも同じ内容を読む。呼び出し経路によって
  * 聞こえ方が変わると、寝起きで混乱するため。
  */
-function buildAlertMessage() {
+export function buildAlertMessage({ attempt = 1 } = {}) {
   // 名前が設定されていれば「◯◯さんからナースコールです」と読む。
   // 未設定なら従来どおり。名前の有無で動作が変わらないようにする。
   const caller = PATIENT_NAME ? `${PATIENT_NAME}さんから` : '';
-  return `${caller}ナースコールです。`
+  // かけ直しの電話は、最初にそう言う。寝ていて1回目を逃した看護師は、
+  // 同じ読み上げだと繰り返しだと分からない(2026-09-14 /hci-check 折り返し #7)。
+  const lead = attempt >= 2 ? `${attempt}回目のお知らせです。` : '';
+  return `${lead}${caller}ナースコールです。`
     + 'アレクサアプリを開いて、呼びかけでお話しください。'
     + `繰り返します。${caller}ナースコールです。`
     + 'アレクサアプリの呼びかけでお話しください。';
@@ -249,12 +252,19 @@ function buildFamilyMessage(outcome) {
       // 分かっているのは「かけ始めた」ことだけ。鳴ったか・出たかは、このあとの通知で伝える。
       return `【ナースコール】${who}が看護師を呼びました。\n${at}\n看護師への発信を始めました。`;
     case 'answered':
-      return `【ナースコール】看護師が電話に出ました。\n${at}`;
+      // Twilio の completed は、人だけでなく留守番電話や自動音声メニューが受けても起こる。
+      // 留守番電話検出を付けていないので、人が出たかは分からない。人が出ても、来てくれるかはまだ分からない。
+      // 「出ました」で家族が見守りをやめないようにする(2026-09-14 /hci-check 折り返し #1・#5)。
+      return `【ナースコール】看護師の電話につながりました。\n${at}\n留守番電話が受けた場合もあります。来てもらえるかは、このあと確かめてください。`;
     case 'retrying':
       return `【ナースコール】看護師が電話に出ませんでした。\n${at}\nもう一度かけ直しています。`;
     case 'unanswered':
       // **一番伝えたい状態。**「呼んだのに誰も来ない」が起きている。
       return `【ナースコール応答なし】${who}が看護師を呼びましたが、${MAX_CALL_ATTEMPTS}回とも電話に出ませんでした。\n${at}\n**すぐに様子を見てください。**`;
+    case 'recall-failed':
+      // 1回目は発信できて出なかった。`failed`(「発信に失敗しました」)だと、
+      // 最初からかけられなかったように読める(2026-09-14 /hci-check 折り返し #6)。
+      return `【ナースコール失敗】${who}が看護師を呼びましたが、1回目は電話に出ず、かけ直しの発信にも失敗しました。\n${at}\n**別の手段で確認してください。**`;
     default:
       return `【ナースコール失敗】${who}が看護師を呼びましたが、電話の発信に失敗しました。\n${at}\n**別の手段で確認してください。**`;
   }
@@ -360,7 +370,7 @@ async function handleCallStatus(event) {
   }
 
   try {
-    const nextSid = await callNurse(buildAlertMessage(), {
+    const nextSid = await callNurse(buildAlertMessage({ attempt: attempt + 1 }), {
       attempt: attempt + 1,
       callbackBase: callbackBaseFrom(event),
     });
@@ -369,7 +379,7 @@ async function handleCallStatus(event) {
     return reply(200, { ok: true, status, action: 'retried', callSid: nextSid });
   } catch (err) {
     console.error('Failed to re-call nurse:', err);
-    await notifyFamilyOnLine(buildFamilyMessage('failed'));
+    await notifyFamilyOnLine(buildFamilyMessage('recall-failed'));
     return reply(502, { error: 'recall failed' });
   }
 }
