@@ -142,6 +142,23 @@ test('文面で成功と失敗が見分けられる', () => {
   assert.match(body, /別の手段で確認/, '失敗時に何をすべきか書いていない');
 });
 
+test('家族への文面に Markdown の装飾を書かない', () => {
+  // **LINE のテキストメッセージは装飾できない。** 公式に装飾ができるのは Flex Message だけで、
+  // `**…**` はそのままアスタリスク記号として表示される（2026-09-19 実機で確認）。
+  // 一番切迫した1行が `**すぐに様子を見てください。**` と記号付きで出ていた。
+  // 壊れて見えると、緊急の通知として読まれにくくなる。
+  const start = SRC.indexOf('function buildFamilyMessage');
+  const end = SRC.indexOf('\n}\n', start);
+  assert.ok(start !== -1 && end !== -1, 'buildFamilyMessage の範囲が取れない');
+  const body = SRC.slice(start, end);
+  // テンプレートリテラルの中身だけを見る（コメントの ** は対象外）。
+  const literals = [...body.matchAll(/return `([\s\S]*?)`;/g)].map((m) => m[1]);
+  assert.ok(literals.length > 0, '文面のテンプレートリテラルが取れない');
+  for (const lit of literals) {
+    assert.ok(!lit.includes('**'), `文面に ** が残っている: ${lit}`);
+  }
+});
+
 test('発信直後の家族通知は「鳴っている」と言わない', () => {
   // **システムが知っている以上を言わない。**（2026-09-14）
   // Alexa 側は 6b4042a で「電話を鳴らしました」→「発信を開始しました」に直したが、
