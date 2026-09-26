@@ -19,18 +19,20 @@ There is no server to start — this is a single Lambda handler (`index.mjs`).
 You exercise it by calling the handler from the tests.
 
 ```bash
-npm install
-npm test          # node --test tests/*.test.mjs
+npm ci
+node --check index.mjs
 ```
 
-The tests need **Node 20 or newer** (they use the built-in test runner) and
-**no AWS or Twilio account**. Credentials are stubbed with dummy values, so
-`callNurse` fails on purpose; the tests check what the handler *decides*, not
-whether a call goes through. **Nothing in the test suite places a real call or
-sends a real LINE message.**
+The checked-in deployment workflow uses Node.js 20. See the
+[README check guide](README.md#source-and-checks) for the existing test files and
+an environment-clearing command to run them. Some tests exercise failure paths
+by removing Twilio credentials; LINE settings can still be inherited by handler
+imports. Do not assume all network clients are mocked or run with live credentials.
 
-To try a change by hand, write a small event and pass it to the handler the way
-`tests/call-status.test.mjs` does. Do not point it at real phone numbers.
+For a non-calling manual example, use the README's `LaunchRequest`. Calling
+`CallNurseIntent`, an authenticated button event, or a retry callback can cause a
+real call when runtime credentials are present. Live phone/LINE tests require
+explicit authorization.
 
 ## Required checks before commit
 
@@ -39,9 +41,12 @@ node --check index.mjs
 python3 scripts/check_public_repo.py --staged
 ```
 
-Run the full test suite (`npm test`). It is fast and needs no credentials.
+For behavior changes, run the relevant suite in the isolated environment described above and report exactly what was checked. Documentation-only work should not be represented as a successful call-path test.
 
 ## Submitting changes
+
+Every push to `main` triggers a production Lambda code update, even for documentation.
+Use a review branch; PR creation and production merge are separate decisions.
 
 1. Include a short problem statement and expected result.
 2. Describe verification commands and results.
