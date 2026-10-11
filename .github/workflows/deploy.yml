@@ -16,7 +16,13 @@ on:
   workflow_dispatch:
 
 jobs:
+  tests:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/unit-tests.yml
+
   deploy:
+    needs: tests
     runs-on: ubuntu-latest
     # OIDC でロールを引き受けるために必要
     permissions:
