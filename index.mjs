@@ -1,13 +1,14 @@
 import https from 'https';
 import twilio from 'twilio';
+import { createRuntimeConfigProvider } from './runtime-config.mjs';
 
-const {
+let {
   TWILIO_ACCOUNT_SID,
   TWILIO_AUTH_TOKEN,
   TWILIO_FROM_NUMBER,
   NURSE_PHONE_NUMBER,
   // 誰からのコールかを読み上げに入れる。寝起きでも状況が掴めるようにするため。
-  // このリポジトリは公開なので名前はコードに書かず、Lambda の環境変数で渡す
+  // 名前はコードに書かず、実行時設定から取得する
   // (AGENTS.md: personal information をコミットしない)。未設定でも動く。
   PATIENT_NAME,
   // 物理ボタンからの Webhook を認証する共有シークレット。
@@ -16,13 +17,14 @@ const {
   // 家族への LINE 通知。**未設定でも通報は動く**(通知は付加物)。
   LINE_CHANNEL_ACCESS_TOKEN,
   LINE_USER_ID,
+} = Object.hasOwn(process.env, 'CARE_ALERT_SECRET_ARN') ? {} : process.env;
   // Twilio に伝える折り返し先の基点(この関数の関数URL)。
   // ⚠️ **Alexa 経由の呼び出しでは host が取れない。**
   // Alexa は関数URLではなく Lambda を直接呼ぶため、イベントに host が無い。
   // 夜間に一番使うのは Alexa 経路なので、ここが空だと
   // **肝心の経路だけ通話結果を受け取れない**。だから環境変数で持つ。
-  PUBLIC_CALLBACK_BASE,
-} = process.env;
+const { PUBLIC_CALLBACK_BASE } = process.env;
+const getRuntimeConfig = createRuntimeConfigProvider();
 
 // LINE API を待つ上限。**電話より長く待たない。**
 // 通知のために通報が遅れたら本末転倒(CLAUDE.md §2.6)。
@@ -484,6 +486,21 @@ function redactEvent(event) {
  * AWS Lambda ハンドラー。Alexa からのリクエストを処理する。
  */
 export const handler = async (event) => {
+  const requiresConfiguration = event?.requestContext?.http ||
+    (event?.request?.type === 'IntentRequest' && event.request.intent?.name === 'CallNurseIntent');
+  if (requiresConfiguration) {
+    try {
+      ({ TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER, NURSE_PHONE_NUMBER,
+        PATIENT_NAME, BUTTON_SHARED_SECRET, LINE_CHANNEL_ACCESS_TOKEN, LINE_USER_ID } =
+        await getRuntimeConfig());
+    } catch {
+      console.error('Runtime configuration unavailable.');
+      if (event?.requestContext?.http) {
+        return { statusCode: 503, body: JSON.stringify({ error: 'Service unavailable' }) };
+      }
+      return buildAlexaResponse('電話発信を開始できませんでした。別の連絡手段を使ってください。');
+    }
+  }
   console.log('Received event:', JSON.stringify(redactEvent(event), null, 2));
 
   // --- 物理ボタンからの Webhook -------------------------------------------

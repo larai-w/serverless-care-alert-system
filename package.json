@@ -19,6 +19,7 @@
   },
   "homepage": "https://github.com/larai-w/serverless-care-alert-system#readme",
   "dependencies": {
+    "@aws-sdk/client-secrets-manager": "3.1147.0",
     "twilio": "^6.0.2"
   }
 }
