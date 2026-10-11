@@ -150,7 +150,7 @@ These include source assertions and synthetic handler events. The runtime config
 To run the existing suite without inherited application credentials:
 
 ```bash
-env -u TWILIO_ACCOUNT_SID -u TWILIO_AUTH_TOKEN \
+env -u CARE_ALERT_SECRET_ARN -u TWILIO_ACCOUNT_SID -u TWILIO_AUTH_TOKEN \
   -u TWILIO_FROM_NUMBER -u NURSE_PHONE_NUMBER -u PATIENT_NAME \
   -u BUTTON_SHARED_SECRET -u PUBLIC_CALLBACK_BASE \
   -u REQUIRE_TWILIO_SIGNATURE -u LINE_CHANNEL_ACCESS_TOKEN \
@@ -159,13 +159,13 @@ env -u TWILIO_ACCOUNT_SID -u TWILIO_AUTH_TOKEN \
 
 The command is for a POSIX shell. On other platforms, use an equivalent clean process environment. Do not perform live call or LINE-send checks as part of ordinary documentation work.
 
-[Security CI](.github/workflows/security-baseline.yml) checks the public-content boundary and secrets. The checked-in workflows do not run `npm test`; do not infer behavioral coverage from a green secret scan.
+[Unit test CI](.github/workflows/unit-tests.yml) runs the suite on Node 20 and 24 for pull requests and is reused by deployment. It removes application credentials and does not receive deployment secrets or OIDC permission. [Security CI](.github/workflows/security-baseline.yml) separately checks the public-content boundary and secrets. Neither check proves live secret retrieval or telephone/LINE delivery.
 
 ## Deployment boundary
 
 The [deployment workflow](.github/workflows/deploy.yml) runs on **every push to `main`**, including documentation-only changes, and on manual dispatch. It installs dependencies, packages `index.mjs` and `runtime-config.mjs` with `node_modules`, assumes an AWS role through GitHub OIDC (`AWS_DEPLOY_ROLE_ARN`) and updates Lambda code.
 
-It does not provision the Alexa skill, Twilio account, Function URL, runtime variables or monitoring. It does not run the behavioral suite before updating code. The configured Lambda handler is `index.handler`; Alexa trigger restrictions and callback reachability must be configured and reviewed separately.
+The deployment job waits for the reused Node 20 and 24 unit-test jobs to succeed before packaging or obtaining AWS credentials. A failed or skipped test job prevents the deployment job from running. This is a workflow dependency, not a repository merge-protection setting. It does not provision the Alexa skill, Twilio account, Function URL, runtime variables or monitoring. The configured Lambda handler is `index.handler`; Alexa trigger restrictions and callback reachability must be configured and reviewed separately.
 
 Keep documentation publication on a review branch. Merging to `main` is a production release decision. Deployment and real outbound calls require explicit authorization.
 
