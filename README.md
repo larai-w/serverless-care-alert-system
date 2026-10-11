@@ -103,6 +103,26 @@ All values are runtime configuration. Names below are safe to document; actual c
 
 The callback URL is attached only when a callback base and `BUTTON_SHARED_SECRET` are available. The base is derived from the HTTP host when present, otherwise from `PUBLIC_CALLBACK_BASE`. Call initiation can still succeed without callbacks, so it must not be confused with a working status path.
 
+### Reviewed secret reference option
+
+Set `CARE_ALERT_SECRET_ARN` to the full ARN of a Secrets Manager JSON secret in the
+Lambda region to select runtime secret retrieval. The function role needs
+`secretsmanager:GetSecretValue` for that secret; a customer managed key also needs
+scoped decrypt access. This code does not create the secret or change permissions.
+
+The JSON requires `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`,
+`NURSE_PHONE_NUMBER` and `BUTTON_SHARED_SECRET`. `PATIENT_NAME` is optional, and
+`LINE_CHANNEL_ACCESS_TOKEN` / `LINE_USER_ID` are optional as a pair. Keep
+`PUBLIC_CALLBACK_BASE` and `REQUIRE_TWILIO_SIGNATURE` as ordinary configuration.
+
+When the reference is present, sensitive environment values are never used as a
+fallback. Retrieval or validation failure prevents call and LINE side effects and
+returns a generic unavailable response. Successful retrieval is cached for the
+warm execution environment lifetime; replacing warm environments is required to
+adopt rotated values. Without the reference, the existing environment mode remains
+supported for a staged transition. No rotation or environment cleanup is automatic.
+Configuration switching and rollback require a separately approved migration plan.
+
 ### Authentication and privacy details
 
 - Button authentication accepts `x-button-secret` or a `secret` query parameter. Prefer headers for clients that support them; URL secrets can appear in external logs.
@@ -121,10 +141,11 @@ The callback URL is attached only when a callback base and `BUTTON_SHARED_SECRET
 | Callback status and attempt parsing | [call-status.test.mjs](tests/call-status.test.mjs) |
 | Optional signature enforcement | [twilio-signature.test.mjs](tests/twilio-signature.test.mjs) |
 | Shared-secret redaction | [log-redaction.test.mjs](tests/log-redaction.test.mjs) |
+| Runtime secret validation and handler integration | [runtime-config.test.mjs](tests/runtime-config.test.mjs), [runtime-config-handler.test.mjs](tests/runtime-config-handler.test.mjs) |
 | LINE ordering, messages and callback base | [line-notify.test.mjs](tests/line-notify.test.mjs) |
 | Public prototype/license metadata | [public-metadata.test.mjs](tests/public-metadata.test.mjs) |
 
-These include source assertions and synthetic handler events. Some deliberately remove calling credentials to exercise failure branches; they do not prove a successful end-to-end call. Some handlers also reference LINE configuration, so use a clean environment rather than assuming every external dependency is mocked.
+These include source assertions and synthetic handler events. The runtime configuration tests replace secret retrieval, Twilio and LINE dependencies; they do not prove live AWS retrieval or telephone/notification delivery. Some deliberately remove calling credentials to exercise failure branches; they do not prove a successful end-to-end call. Some handlers also reference LINE configuration, so use a clean environment rather than assuming every external dependency is mocked.
 
 To run the existing suite without inherited application credentials:
 
@@ -142,7 +163,7 @@ The command is for a POSIX shell. On other platforms, use an equivalent clean pr
 
 ## Deployment boundary
 
-The [deployment workflow](.github/workflows/deploy.yml) runs on **every push to `main`**, including documentation-only changes, and on manual dispatch. It installs dependencies, packages `index.mjs` with `node_modules`, assumes an AWS role through GitHub OIDC (`AWS_DEPLOY_ROLE_ARN`) and updates Lambda code.
+The [deployment workflow](.github/workflows/deploy.yml) runs on **every push to `main`**, including documentation-only changes, and on manual dispatch. It installs dependencies, packages `index.mjs` and `runtime-config.mjs` with `node_modules`, assumes an AWS role through GitHub OIDC (`AWS_DEPLOY_ROLE_ARN`) and updates Lambda code.
 
 It does not provision the Alexa skill, Twilio account, Function URL, runtime variables or monitoring. It does not run the behavioral suite before updating code. The configured Lambda handler is `index.handler`; Alexa trigger restrictions and callback reachability must be configured and reviewed separately.
 
